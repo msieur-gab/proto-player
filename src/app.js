@@ -239,9 +239,9 @@ function handleFolderResult(result) {
 folderBtn.addEventListener('click', async () => {
   try {
     const result = await openMusicFolder();
-    if (!result) {
-      // Only show feedback if user didn't cancel (cancel returns null early)
-      showToast('No audio files found — try a different folder');
+    if (!result) return; // user cancelled
+    if (result.albums.length === 0) {
+      showToast('No audio files found — tap folder again to select files');
       return;
     }
     handleFolderResult(result);

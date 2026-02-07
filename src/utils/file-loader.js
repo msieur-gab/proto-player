@@ -40,13 +40,17 @@ const CONCURRENCY = 5;
  */
 export async function openMusicFolder() {
   const pickResult = await pickFiles();
-  if (!pickResult) return null;
+  if (!pickResult) return null; // user cancelled
 
   const { files, dirHandle } = pickResult;
-  if (files.length === 0) return null;
+  if (files.length === 0) {
+    return { albums: [], fileMap: new Map(), dirHandle }; // no files found (not cancel)
+  }
 
   const result = await processFiles(files);
-  if (!result) return null;
+  if (!result) {
+    return { albums: [], fileMap: new Map(), dirHandle }; // files found but none were audio
+  }
 
   return { albums: result.albums, fileMap: result.fileMap, dirHandle };
 }
@@ -144,6 +148,9 @@ async function processFiles(files) {
 
 // --- File picking ---
 
+// Track whether webkitdirectory has failed so we skip it on retry
+let folderModeFailed = false;
+
 async function pickFiles() {
   // Desktop Chrome/Edge: use File System Access API (supports persist + rescan)
   if (window.showDirectoryPicker) {
@@ -158,12 +165,24 @@ async function pickFiles() {
     }
   }
 
-  // Mobile / Firefox: folder picker via <input webkitdirectory>
-  // If that yields nothing, fall back to plain multi-file picker
-  const folderResult = await pickFilesViaInput(true);
-  if (folderResult && folderResult.files.length > 0) return folderResult;
+  // Mobile / Firefox fallback
+  if (!folderModeFailed) {
+    // First attempt: try webkitdirectory (folder picker)
+    const folderResult = await pickFilesViaInput(true);
+    if (folderResult && folderResult.files.length > 0) return folderResult;
 
-  console.log('[file-loader] Folder picker returned no audio files, trying file picker...');
+    // Folder mode returned 0 audio files — mark it as broken
+    // Can't auto-retry: the user gesture was consumed by the first picker
+    if (folderResult && folderResult.files.length === 0) {
+      console.warn('[file-loader] webkitdirectory returned 0 audio files, switching to file mode');
+      folderModeFailed = true;
+      return folderResult; // return empty so caller can show feedback
+    }
+
+    return folderResult; // null = user cancelled
+  }
+
+  // Subsequent attempts: use plain multi-file picker (reliable on Android)
   return pickFilesViaInput(false);
 }
 
