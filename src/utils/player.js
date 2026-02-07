@@ -105,6 +105,7 @@ function playTrack(index) {
 
   emit('track-change', { album: currentAlbum, track, index });
   emit('playstate-change', { playing: true });
+  updateMediaSession(currentAlbum, track);
 }
 
 function emit(type, detail) {
@@ -131,3 +132,31 @@ audio.addEventListener('timeupdate', () => {
     duration: audio.duration,
   });
 });
+
+// --- Media Session API ---
+
+function updateMediaSession(album, track) {
+  if (!('mediaSession' in navigator)) return;
+
+  const artwork = [];
+  if (album.cover && (album.cover.startsWith('https://') || album.cover.startsWith('data:'))) {
+    artwork.push({ src: album.cover, sizes: '512x512', type: 'image/jpeg' });
+  }
+
+  navigator.mediaSession.metadata = new MediaMetadata({
+    title: track.title,
+    artist: album.artist,
+    album: album.title,
+    artwork,
+  });
+}
+
+if ('mediaSession' in navigator) {
+  navigator.mediaSession.setActionHandler('play', () => play());
+  navigator.mediaSession.setActionHandler('pause', () => pause());
+  navigator.mediaSession.setActionHandler('previoustrack', () => prev());
+  navigator.mediaSession.setActionHandler('nexttrack', () => next());
+  navigator.mediaSession.setActionHandler('seekto', (details) => {
+    audio.currentTime = details.seekTime;
+  });
+}

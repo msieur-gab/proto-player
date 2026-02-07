@@ -6,6 +6,9 @@
   <title>Proto Player</title>
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;1,9..40,300&family=Instrument+Serif:ital@0;1&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="src/styles/player.css">
+  <link rel="manifest" href="manifest.json">
+  <meta name="theme-color" content="#f5f2ed">
+  <link rel="icon" href="icon.svg" type="image/svg+xml">
 </head>
 <body>
 
@@ -33,9 +36,83 @@
     </svg>
   </button>
 
+  <button class="install-btn hidden" aria-label="Install app">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+      <polyline points="7 10 12 15 17 10"/>
+      <line x1="12" y1="15" x2="12" y2="3"/>
+    </svg>
+  </button>
+
+  <div class="auth-banner hidden">Tap to allow file access</div>
+
+  <div class="pwa-toast hidden">
+    <span>App updated</span>
+    <button class="pwa-toast__btn">Refresh</button>
+  </div>
+
   <player-bar></player-bar>
 
   <script type="module" src="src/app.js"></script>
+
+  <script>
+    if ('serviceWorker' in navigator) {
+      let refreshing = false;
+
+      navigator.serviceWorker.register('./sw.js').then(reg => {
+        reg.addEventListener('updatefound', () => {
+          const newWorker = reg.installing;
+          if (!newWorker) return;
+
+          newWorker.addEventListener('statechange', () => {
+            if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
+              document.querySelector('.pwa-toast').classList.remove('hidden');
+            }
+          });
+        });
+      });
+
+      navigator.serviceWorker.addEventListener('controllerchange', () => {
+        if (!refreshing) {
+          refreshing = true;
+          location.reload();
+        }
+      });
+
+      document.querySelector('.pwa-toast__btn').addEventListener('click', () => {
+        navigator.serviceWorker.getRegistration().then(reg => {
+          if (reg && reg.waiting) {
+            reg.waiting.postMessage({ type: 'SKIP_WAITING' });
+          } else {
+            location.reload();
+          }
+        });
+      });
+    }
+
+    // Install prompt — exposed on window so app.js can check visibility
+    window._deferredInstallPrompt = null;
+    window.addEventListener('beforeinstallprompt', (e) => {
+      e.preventDefault();
+      window._deferredInstallPrompt = e;
+      document.querySelector('.install-btn').classList.remove('hidden');
+    });
+
+    document.querySelector('.install-btn').addEventListener('click', async () => {
+      if (!window._deferredInstallPrompt) return;
+      window._deferredInstallPrompt.prompt();
+      const result = await window._deferredInstallPrompt.userChoice;
+      if (result.outcome === 'accepted') {
+        document.querySelector('.install-btn').classList.add('hidden');
+      }
+      window._deferredInstallPrompt = null;
+    });
+
+    window.addEventListener('appinstalled', () => {
+      document.querySelector('.install-btn').classList.add('hidden');
+      window._deferredInstallPrompt = null;
+    });
+  </script>
 
 </body>
 </html>

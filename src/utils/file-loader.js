@@ -90,8 +90,7 @@ async function processFiles(files) {
       entry.picture = tags.picture;
     }
 
-    // Use _relativePath set during scan, or webkitRelativePath for input fallback
-    const path = file._relativePath || file.webkitRelativePath || file.name;
+    const path = file._relativePath || file.name;
     fileMap.set(path, file);
 
     entry.tracks.push({
@@ -131,35 +130,16 @@ async function processFiles(files) {
 // --- File picking ---
 
 async function pickFiles() {
-  // Try File System Access API first (Chromium, secure context only)
-  if (window.showDirectoryPicker) {
-    try {
-      console.log('[file-loader] Using File System Access API');
-      const dirHandle = await window.showDirectoryPicker();
-      const files = await scanDirectory(dirHandle);
-      console.log(`[file-loader] Found ${files.length} file(s)`);
-      return { files, dirHandle };
-    } catch (e) {
-      if (e.name === 'AbortError') return null;
-      console.warn('[file-loader] Directory picker failed, using fallback:', e.message);
-    }
+  if (!window.showDirectoryPicker) return null;
+  try {
+    const dirHandle = await window.showDirectoryPicker();
+    const files = await scanDirectory(dirHandle);
+    return { files, dirHandle };
+  } catch (e) {
+    if (e.name === 'AbortError') return null;
+    console.warn('[file-loader] Directory picker failed:', e.message);
+    return null;
   }
-
-  // Fallback: <input webkitdirectory>
-  console.log('[file-loader] Using <input webkitdirectory> fallback');
-  return new Promise((resolve) => {
-    const input = document.createElement('input');
-    input.type = 'file';
-    input.setAttribute('webkitdirectory', '');
-    input.setAttribute('multiple', '');
-    input.addEventListener('change', () => {
-      const files = input.files ? Array.from(input.files) : [];
-      console.log(`[file-loader] Input returned ${files.length} file(s)`);
-      resolve({ files, dirHandle: null });
-    });
-    input.addEventListener('cancel', () => resolve(null));
-    input.click();
-  });
 }
 
 async function scanDirectory(dirHandle) {

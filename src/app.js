@@ -39,46 +39,29 @@ const carousel = document.querySelector('ring-carousel');
 const detail = document.querySelector('album-detail');
 const folderBtn = document.querySelector('.folder-btn');
 const rescanBtn = document.querySelector('.rescan-btn');
+const installBtn = document.querySelector('.install-btn');
+const authBanner = document.querySelector('.auth-banner');
 const playerBar = document.querySelector('player-bar');
 
 // State
 let albums = [];
-let palettes = [];
-let cardEls = [];
 let expanded = null;
 let storedHandle = null;
 let hasRealLibrary = false;
+let needsAuthBanner = false;
 
 function populateCarousel(newAlbums) {
   // Collapse detail if open
   if (expanded !== null) {
-    detail.close(cardEls[expanded].getRect());
+    const rect = carousel.getCardRect(expanded);
+    if (rect) detail.close(rect);
     carousel.removeAttribute('dimmed');
     header.classList.remove('hidden');
     expanded = null;
   }
 
-  // Clear existing cards
-  while (carousel.firstChild) {
-    carousel.removeChild(carousel.firstChild);
-  }
-
   albums = newAlbums;
-  palettes = new Array(albums.length).fill(null);
-  cardEls = [];
-
-  albums.forEach((album, i) => {
-    const card = document.createElement('album-card');
-    card.album = album;
-
-    card.addEventListener('palette-ready', (e) => {
-      palettes[i] = e.detail.palette;
-    });
-
-    card.addEventListener('click', () => onCardClick(i));
-    carousel.appendChild(card);
-    cardEls.push(card);
-  });
+  carousel.setAlbums(albums);
 
   // Update header with first album
   if (albums.length > 0) {
@@ -96,7 +79,8 @@ carousel.addEventListener('selection-changed', (e) => {
 });
 
 // Expand / Collapse coordination
-function onCardClick(i) {
+carousel.addEventListener('card-click', (e) => {
+  const i = e.detail.index;
   if (expanded !== null || carousel.dragMoved) return;
 
   if (carousel.selectedIndex !== i) {
@@ -105,28 +89,33 @@ function onCardClick(i) {
   } else {
     expand(i);
   }
-}
+});
 
 function expand(i) {
   if (expanded !== null) return;
   expanded = i;
 
-  const rect = cardEls[i].getRect();
-  cardEls[i].setAttribute('expanding', '');
+  const rect = carousel.getCardRect(i);
+  const cardEl = carousel.getCardElement(i);
+  if (cardEl) cardEl.setAttribute('expanding', '');
   carousel.setAttribute('dimmed', '');
   header.classList.add('hidden');
   folderBtn.classList.add('hidden');
   rescanBtn.classList.add('hidden');
+  installBtn.classList.add('hidden');
+  authBanner.classList.add('hidden');
 
-  detail.open(albums[i], palettes[i], rect);
+  const palette = carousel.getPalette(i);
+  detail.open(albums[i], palette, rect);
 }
 
 function collapse() {
   if (expanded === null) return;
   const i = expanded;
-  const rect = cardEls[i].getRect();
+  const rect = carousel.getCardRect(i);
+  const cardEl = carousel.getCardElement(i);
 
-  detail.close(rect);
+  detail.close(rect || detail.getBoundingClientRect());
 
   // Reveal carousel + header when surface starts shrinking back
   setTimeout(() => {
@@ -134,11 +123,13 @@ function collapse() {
     header.classList.remove('hidden');
     folderBtn.classList.remove('hidden');
     if (storedHandle) rescanBtn.classList.remove('hidden');
+    if (window._deferredInstallPrompt) installBtn.classList.remove('hidden');
+    if (needsAuthBanner) authBanner.classList.remove('hidden');
   }, 180);
 
   // Cleanup after full animation
   setTimeout(() => {
-    cardEls[i].removeAttribute('expanding');
+    if (cardEl) cardEl.removeAttribute('expanding');
     expanded = null;
   }, 730);
 }
@@ -199,6 +190,8 @@ folderBtn.addEventListener('click', async () => {
       storedHandle = dirHandle;
       saveHandle(dirHandle).catch(e => console.warn('[app] Handle save failed:', e));
       rescanBtn.classList.remove('hidden');
+      needsAuthBanner = false;
+      authBanner.classList.add('hidden');
     }
   } catch (e) {
     console.error('[app] Failed to load music folder:', e);
@@ -230,6 +223,33 @@ rescanBtn.addEventListener('click', async () => {
   }
 });
 
+// --- Auth banner ---
+authBanner.addEventListener('click', async () => {
+  if (!storedHandle) return;
+  try {
+    const perm = await storedHandle.requestPermission({ mode: 'read' });
+    if (perm === 'granted') {
+      needsAuthBanner = false;
+      authBanner.classList.add('hidden');
+      await doRescan(storedHandle);
+    }
+  } catch (e) {
+    console.warn('[app] Permission request failed:', e);
+  }
+});
+
+async function doRescan(handle) {
+  const result = await rescanFolder(handle);
+  if (result) {
+    player.setFileMap(result.fileMap);
+    if (result.albums.length > 0) {
+      populateCarousel(result.albums);
+      hasRealLibrary = true;
+      saveLibrary(result.albums).catch(e => console.warn('[app] DB update failed:', e));
+    }
+  }
+}
+
 // --- Startup sequence ---
 async function init() {
   // 1. Try loading cached library from IndexedDB
@@ -251,21 +271,16 @@ async function init() {
       storedHandle = handle;
       rescanBtn.classList.remove('hidden');
 
-      // Request permission and rescan in background
-      const perm = await handle.requestPermission({ mode: 'read' });
+      // Check permission without prompting (queryPermission doesn't require gesture)
+      const perm = await handle.queryPermission({ mode: 'read' });
       if (perm === 'granted') {
-        console.log('[app] Handle permission granted, rescanning...');
-        const result = await rescanFolder(handle);
-        if (result) {
-          player.setFileMap(result.fileMap);
-          // Only update carousel if we got results
-          if (result.albums.length > 0) {
-            populateCarousel(result.albums);
-            saveLibrary(result.albums).catch(e => console.warn('[app] DB update failed:', e));
-          }
-        }
+        console.log('[app] Handle permission already granted, rescanning...');
+        await doRescan(handle);
       } else {
-        console.log('[app] Handle permission denied — playback disabled until folder re-opened');
+        // Need user gesture — show auth banner
+        console.log('[app] Handle permission not granted, showing auth banner');
+        needsAuthBanner = true;
+        authBanner.classList.remove('hidden');
       }
     }
   } catch (e) {
