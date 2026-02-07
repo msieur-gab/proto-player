@@ -1,4 +1,4 @@
-const CACHE_NAME = 'proto-player-v4';
+const CACHE_NAME = 'proto-player-v5';
 
 const DEXIE_CDN = 'https://unpkg.com/dexie@4/dist/dexie.mjs';
 

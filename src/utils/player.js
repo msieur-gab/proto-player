@@ -8,8 +8,23 @@ let currentTrackIndex = -1;
 let fileMap = new Map();
 
 // Unlock audio on first user interaction (mobile browsers block play without gesture)
+let audioUnlocked = false;
 function unlockAudio() {
-  audio.play().then(() => audio.pause()).catch(() => {});
+  if (audioUnlocked) return;
+  // Create a tiny silent WAV and play it — this reliably unlocks the audio
+  // context on iOS Safari and Android Chrome (playing with no src does not)
+  const silentWav = 'data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAIA+AAACABAAZGF0YQAAAAA=';
+  audio.src = silentWav;
+  audio.volume = 0;
+  audio.play().then(() => {
+    audio.pause();
+    audio.volume = 1;
+    audio.src = '';
+    audioUnlocked = true;
+  }).catch(() => {
+    audio.volume = 1;
+    audio.src = '';
+  });
   document.removeEventListener('touchstart', unlockAudio, true);
   document.removeEventListener('click', unlockAudio, true);
 }
@@ -101,7 +116,7 @@ function playTrack(index) {
   const file = fileMap.get(track.path);
 
   if (!file) {
-    console.warn(`[player] No file found for path: ${track.path}`);
+    console.warn(`[player] No file found for path: "${track.path}" (fileMap has ${fileMap.size} entries)`);
     return;
   }
 
@@ -112,7 +127,15 @@ function playTrack(index) {
   }
 
   currentTrackIndex = index;
-  currentBlobURL = URL.createObjectURL(file);
+
+  try {
+    currentBlobURL = URL.createObjectURL(file);
+  } catch (err) {
+    console.warn('[player] Could not create blob URL:', err.message);
+    emit('playstate-change', { playing: false });
+    return;
+  }
+
   audio.src = currentBlobURL;
 
   // Emit track info immediately so player bar shows regardless of play() outcome
@@ -126,6 +149,13 @@ function playTrack(index) {
     emit('playstate-change', { playing: false });
   });
 }
+
+// Log audio errors for debugging
+audio.addEventListener('error', () => {
+  const err = audio.error;
+  console.warn(`[player] Audio error: code=${err?.code} message="${err?.message}"`);
+  emit('playstate-change', { playing: false });
+});
 
 function emit(type, detail) {
   bus.dispatchEvent(new CustomEvent(type, { detail }));

@@ -10,7 +10,13 @@ export async function parseID3(file) {
   const result = { title: null, artist: null, album: null, track: null, picture: null };
 
   // Read the 10-byte ID3 header
-  const headerBuf = await readSlice(file, 0, 10);
+  let headerBuf;
+  try {
+    headerBuf = await readSlice(file, 0, 10);
+  } catch {
+    return result; // File unreadable (permission lost, etc.)
+  }
+  if (headerBuf.byteLength < 10) return result;
   const header = new DataView(headerBuf);
 
   // Check "ID3" magic
