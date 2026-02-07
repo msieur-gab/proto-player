@@ -7,6 +7,15 @@ let currentAlbum = null;
 let currentTrackIndex = -1;
 let fileMap = new Map();
 
+// Unlock audio on first user interaction (mobile browsers block play without gesture)
+function unlockAudio() {
+  audio.play().then(() => audio.pause()).catch(() => {});
+  document.removeEventListener('touchstart', unlockAudio, true);
+  document.removeEventListener('click', unlockAudio, true);
+}
+document.addEventListener('touchstart', unlockAudio, true);
+document.addEventListener('click', unlockAudio, true);
+
 // Expose event bus for external listeners
 export const events = bus;
 
@@ -105,11 +114,17 @@ function playTrack(index) {
   currentTrackIndex = index;
   currentBlobURL = URL.createObjectURL(file);
   audio.src = currentBlobURL;
-  audio.play();
 
+  // Emit track info immediately so player bar shows regardless of play() outcome
   emit('track-change', { album: currentAlbum, track, index });
-  emit('playstate-change', { playing: true });
   updateMediaSession(currentAlbum, track);
+
+  audio.play().then(() => {
+    emit('playstate-change', { playing: true });
+  }).catch((err) => {
+    console.warn('[player] play() blocked:', err.message);
+    emit('playstate-change', { playing: false });
+  });
 }
 
 function emit(type, detail) {
