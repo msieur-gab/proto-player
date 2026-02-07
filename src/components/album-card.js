@@ -59,7 +59,7 @@ template.innerHTML = `
     }
   </style>
   <figure>
-    <img crossorigin="anonymous" draggable="false" loading="lazy" alt="">
+    <img draggable="false" alt="">
     <figcaption>
       <strong></strong>
       <small></small>
@@ -90,8 +90,16 @@ class AlbumCard extends HTMLElement {
     if (this._loadHandler) {
       this._img.removeEventListener('load', this._loadHandler);
     }
+    if (this._errorHandler) {
+      this._img.removeEventListener('error', this._errorHandler);
+    }
+
     this._loadHandler = () => {
-      this._palette = extractPalette(this._img);
+      try {
+        this._palette = extractPalette(this._img);
+      } catch {
+        this._palette = null;
+      }
       if (this._palette) {
         this._img.style.backgroundColor = rgb(this._palette[0]);
       }
@@ -102,7 +110,21 @@ class AlbumCard extends HTMLElement {
       this._img.removeEventListener('load', this._loadHandler);
       this._loadHandler = null;
     };
+    this._errorHandler = () => {
+      console.warn(`[album-card] Image failed to load for "${data.title}"`);
+      this._img.removeEventListener('error', this._errorHandler);
+      this._errorHandler = null;
+    };
     this._img.addEventListener('load', this._loadHandler);
+    this._img.addEventListener('error', this._errorHandler, { once: true });
+
+    // Only set crossorigin for external URLs (needed for canvas palette extraction).
+    // Blob URLs and data URIs are same-origin — crossorigin can block them in Chrome.
+    if (data.cover && data.cover.startsWith('http')) {
+      this._img.crossOrigin = 'anonymous';
+    } else {
+      this._img.removeAttribute('crossorigin');
+    }
 
     this._img.src = data.cover;
   }

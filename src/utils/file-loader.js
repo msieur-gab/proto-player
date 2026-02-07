@@ -118,9 +118,8 @@ async function processFiles(files) {
       return a.title.localeCompare(b.title);
     });
 
-    const cover = entry.picture
-      ? pictureToURL(entry.picture)
-      : PLACEHOLDER_COVER;
+    const cover = (entry.picture && pictureToURL(entry.picture))
+      || PLACEHOLDER_COVER;
 
     albums.push({
       title: entry.albumName,

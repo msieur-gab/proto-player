@@ -104,6 +104,12 @@ class RingCarousel extends HTMLElement {
   get dragMoved() { return this._drag.moved; }
 
   setAlbums(albumsArray) {
+    // Cancel any running snap animation so it doesn't overwrite our state
+    if (this._snapRaf) {
+      cancelAnimationFrame(this._snapRaf);
+      this._snapRaf = null;
+    }
+
     this._albums = albumsArray;
     this._currentIndex = 0;
     this._selectedIndex = 0;
