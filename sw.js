@@ -1,12 +1,11 @@
-const CACHE_NAME = 'proto-player-v6';
-
-const DEXIE_CDN = 'https://unpkg.com/dexie@4/dist/dexie.mjs';
+const CACHE_NAME = 'proto-player-v9';
 
 const APP_SHELL = [
   './',
   'index.html',
   'icon.svg',
   'manifest.json',
+  'vendor/dexie.mjs',
   'src/styles/player.css',
   'src/app.js',
   'src/components/album-card.js',
@@ -17,9 +16,9 @@ const APP_SHELL = [
   'src/utils/db.js',
   'src/utils/file-loader.js',
   'src/utils/id3-parser.js',
+  'src/utils/metadata.js',
   'src/utils/palette.js',
   'src/utils/ring-math.js',
-  DEXIE_CDN,
 ];
 
 // Install — precache app shell (don't skipWaiting — let the page control when to activate)
@@ -48,20 +47,16 @@ self.addEventListener('activate', (e) => {
   );
 });
 
-// Fetch — cache-first for same-origin GET, network-only for everything else
+// Fetch — cache-first for same-origin GET only
 self.addEventListener('fetch', (e) => {
   const { request } = e;
 
-  // Skip non-GET, blob:, and chrome-extension: URLs
   if (request.method !== 'GET') return;
   if (request.url.startsWith('blob:')) return;
   if (request.url.startsWith('chrome-extension:')) return;
 
   const url = new URL(request.url);
-  const isSameOrigin = url.origin === self.location.origin;
-  const isCachedCDN = request.url.startsWith(DEXIE_CDN);
-
-  if (!isSameOrigin && !isCachedCDN) return;
+  if (url.origin !== self.location.origin) return;
 
   e.respondWith(
     caches.match(request).then((cached) => cached || fetch(request))

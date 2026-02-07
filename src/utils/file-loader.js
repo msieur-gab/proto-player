@@ -1,5 +1,6 @@
 // File System Access API integration — folder picker + audio file scanning
 import { parseID3, pictureToURL } from './id3-parser.js';
+import { parseFLAC, parseOGG, parseM4A } from './metadata.js';
 
 // Simple SVG placeholder for albums without cover art
 const PLACEHOLDER_COVER = `data:image/svg+xml,${encodeURIComponent(
@@ -26,7 +27,7 @@ function isAudioFile(name) {
 const CONCURRENCY = 5;
 
 /**
- * Open a music folder, scan for MP3s, extract metadata
+ * Open a music folder, scan for audio files, extract metadata
  * @returns {Promise<{ albums, fileMap, dirHandle }|null>}
  */
 export async function openMusicFolder() {
@@ -51,7 +52,6 @@ export async function rescanFolder(dirHandle) {
   const files = await scanDirectory(dirHandle);
   if (!files || files.length === 0) return null;
 
-  // Attach relative paths from handle walk
   return processFiles(files);
 }
 
@@ -64,15 +64,12 @@ async function processFiles(files) {
 
   console.log(`[file-loader] Found ${audioFiles.length} audio file(s)`);
 
-  // Build fileMap: path → File
   const fileMap = new Map();
 
-  // Parse metadata + get duration with concurrency limit
   const parsed = (await mapWithLimit(audioFiles, CONCURRENCY, async (file) => {
     try {
-      const isMP3 = file.name.toLowerCase().endsWith('.mp3');
       const [tags, duration] = await Promise.all([
-        isMP3 ? parseID3(file) : tagsFromPath(file),
+        parseMetadata(file),
         getDuration(file),
       ]);
       return { file, tags, duration };
@@ -82,7 +79,6 @@ async function processFiles(files) {
     }
   })).filter(Boolean);
 
-  // Group by album + artist
   const albumMap = new Map();
 
   for (const { file, tags, duration } of parsed) {
@@ -114,7 +110,6 @@ async function processFiles(files) {
     });
   }
 
-  // Build result array
   const albums = [];
 
   for (const entry of albumMap.values()) {
@@ -143,16 +138,52 @@ async function processFiles(files) {
 // --- File picking ---
 
 async function pickFiles() {
-  if (!window.showDirectoryPicker) return null;
-  try {
-    const dirHandle = await window.showDirectoryPicker();
-    const files = await scanDirectory(dirHandle);
-    return { files, dirHandle };
-  } catch (e) {
-    if (e.name === 'AbortError') return null;
-    console.warn('[file-loader] Directory picker failed:', e.message);
-    return null;
+  // Desktop Chrome/Edge: use File System Access API (supports persist + rescan)
+  if (window.showDirectoryPicker) {
+    try {
+      const dirHandle = await window.showDirectoryPicker();
+      const files = await scanDirectory(dirHandle);
+      return { files, dirHandle };
+    } catch (e) {
+      if (e.name === 'AbortError') return null;
+      console.warn('[file-loader] Directory picker failed:', e.message);
+      return null;
+    }
   }
+
+  // Mobile / Firefox fallback: hidden <input webkitdirectory>
+  return pickFilesViaInput();
+}
+
+function pickFilesViaInput() {
+  return new Promise((resolve) => {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.multiple = true;
+    input.setAttribute('webkitdirectory', '');
+    input.setAttribute('directory', '');
+    input.accept = 'audio/*';
+
+    input.addEventListener('change', () => {
+      if (!input.files || input.files.length === 0) {
+        resolve(null);
+        return;
+      }
+      const files = [];
+      for (const file of input.files) {
+        if (isAudioFile(file.name)) {
+          file._relativePath = file.webkitRelativePath || file.name;
+          files.push(file);
+        }
+      }
+      console.log(`[file-loader] Input picker: ${files.length} audio file(s)`);
+      resolve({ files, dirHandle: null });
+    }, { once: true });
+
+    input.addEventListener('cancel', () => resolve(null), { once: true });
+
+    input.click();
+  });
 }
 
 async function scanDirectory(dirHandle) {
@@ -163,7 +194,6 @@ async function scanDirectory(dirHandle) {
       const path = prefix ? `${prefix}/${entry.name}` : entry.name;
       if (entry.kind === 'file' && isAudioFile(entry.name)) {
         const file = await entry.getFile();
-        // Attach relative path for fileMap lookup
         file._relativePath = path;
         files.push(file);
       } else if (entry.kind === 'directory') {
@@ -239,6 +269,32 @@ function cleanFilename(name) {
 }
 
 /**
+ * Pick the right metadata parser based on file extension.
+ * Falls back to folder-structure tags if the parser finds nothing.
+ */
+async function parseMetadata(file) {
+  const name = file.name.toLowerCase();
+  let tags = null;
+
+  if (name.endsWith('.mp3')) {
+    tags = await parseID3(file);
+  } else if (name.endsWith('.flac')) {
+    tags = await parseFLAC(file);
+  } else if (name.endsWith('.ogg') || name.endsWith('.opus')) {
+    tags = await parseOGG(file);
+  } else if (name.endsWith('.m4a') || name.endsWith('.aac')) {
+    tags = await parseM4A(file);
+  }
+
+  // If parser returned nothing useful, derive from path
+  if (!tags || (!tags.title && !tags.artist && !tags.album)) {
+    tags = tagsFromPath(file);
+  }
+
+  return tags;
+}
+
+/**
  * Extract metadata from the file's relative path (folder structure).
  * Handles patterns like:  Artist/Album/01 - Title.flac
  *                          Album/01 Title.m4a
@@ -254,16 +310,13 @@ function tagsFromPath(file) {
   let album = null;
   let track = null;
 
-  // Try to extract track number from filename
   const trackMatch = filename.match(/^(\d+)/);
   if (trackMatch) track = trackMatch[1];
 
   if (parts.length >= 3) {
-    // Artist/Album/Track
     artist = parts[parts.length - 3];
     album = parts[parts.length - 2];
   } else if (parts.length === 2) {
-    // Album/Track (or Artist/Track)
     album = parts[0];
   }
 
