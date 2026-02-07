@@ -21,11 +21,11 @@ template.innerHTML = `
     }
     .surface.animating {
       transition:
-        left 0.55s cubic-bezier(0.4,0,0.15,1),
-        top 0.55s cubic-bezier(0.4,0,0.15,1),
-        width 0.55s cubic-bezier(0.4,0,0.15,1),
-        height 0.55s cubic-bezier(0.4,0,0.15,1),
-        border-radius 0.55s cubic-bezier(0.4,0,0.15,1);
+        left 0.35s cubic-bezier(0.4,0,0.15,1),
+        top 0.35s cubic-bezier(0.4,0,0.15,1),
+        width 0.35s cubic-bezier(0.4,0,0.15,1),
+        height 0.35s cubic-bezier(0.4,0,0.15,1),
+        border-radius 0.35s cubic-bezier(0.4,0,0.15,1);
     }
     .surface.full {
       left: 0 !important;
@@ -40,7 +40,7 @@ template.innerHTML = `
       inset: 0;
       overflow-y: auto;
       opacity: 0;
-      transition: opacity 0.3s ease 0.35s;
+      transition: opacity 0.25s ease 0.2s;
       display: flex;
       flex-direction: column;
     }
@@ -279,7 +279,7 @@ class AlbumDetail extends HTMLElement {
     // Force reflow, then animate to fullscreen
     this._surface.offsetHeight;
     this._surface.classList.add('animating', 'full');
-    setTimeout(() => this.setAttribute('open', ''), 400);
+    setTimeout(() => this.setAttribute('open', ''), 250);
   }
 
   close(targetRect) {
@@ -300,8 +300,8 @@ class AlbumDetail extends HTMLElement {
         this.removeAttribute('active');
         this.removeAttribute('closing');
         this._surface.classList.remove('animating');
-      }, 550);
-    }, 180);
+      }, 350);
+    }, 120);
   }
 }
 

@@ -1,6 +1,6 @@
 // Arc-slot math for virtual carousel — pure functions
 
-export const ARC_STEP = 20;       // degrees between adjacent cards
+export const ARC_STEP = 26;       // degrees between adjacent cards
 export const POOL_HALF = 4;       // cards on each side of center
 export const POOL_SIZE = 9;       // total card pool (2 * POOL_HALF + 1)
 export const PX_PER_INDEX = 100;  // drag pixels per one album position

@@ -125,13 +125,13 @@ function collapse() {
     if (storedHandle) rescanBtn.classList.remove('hidden');
     if (window._deferredInstallPrompt) installBtn.classList.remove('hidden');
     if (needsAuthBanner) authBanner.classList.remove('hidden');
-  }, 180);
+  }, 120);
 
   // Cleanup after full animation
   setTimeout(() => {
     if (cardEl) cardEl.removeAttribute('expanding');
     expanded = null;
-  }, 730);
+  }, 470);
 }
 
 detail.addEventListener('detail-close', collapse);
