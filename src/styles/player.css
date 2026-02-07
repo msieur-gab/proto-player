@@ -76,8 +76,16 @@ body::after {
   color: var(--text-primary);
 }
 .folder-btn:hover { transform: scale(1.08); }
-.folder-btn svg { width: 16px; height: 16px; }
+.folder-btn svg { width: 16px; height: 16px; pointer-events: none; }
 .folder-btn.hidden { opacity: 0; pointer-events: none; }
+.folder-btn #music-input {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  width: 100%;
+  height: 100%;
+  cursor: pointer;
+}
 
 .rescan-btn {
   position: fixed;

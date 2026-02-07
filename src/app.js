@@ -2,7 +2,7 @@ import './components/album-card.js';
 import './components/ring-carousel.js';
 import './components/album-detail.js';
 import './components/player-bar.js';
-import { openMusicFolder, rescanFolder } from './utils/file-loader.js';
+import { openMusicFolder, processPickedFiles, rescanFolder } from './utils/file-loader.js';
 import { saveLibrary, loadLibrary, saveHandle, loadHandle } from './utils/db.js';
 import * as player from './utils/player.js';
 
@@ -38,10 +38,12 @@ const hSub = document.querySelector('.header__sub');
 const carousel = document.querySelector('ring-carousel');
 const detail = document.querySelector('album-detail');
 const folderBtn = document.querySelector('.folder-btn');
+const musicInput = document.getElementById('music-input');
 const rescanBtn = document.querySelector('.rescan-btn');
 const installBtn = document.querySelector('.install-btn');
 const authBanner = document.querySelector('.auth-banner');
 const playerBar = document.querySelector('player-bar');
+const hasNativePicker = !!window.showDirectoryPicker;
 
 // State
 let albums = [];
@@ -172,15 +174,10 @@ detail.addEventListener('track-play', async (e) => {
         return;
       }
     } else if (hasRealLibrary) {
-      // Mobile: no stored handle, re-pick the folder
-      try {
-        const result = await openMusicFolder();
-        if (!result) return;
-        handleFolderResult(result);
-      } catch (err) {
-        console.warn('[app] Re-pick failed:', err);
-        return;
-      }
+      // Mobile: no stored handle — trigger the native file input
+      // (we're in a user gesture from the track click)
+      musicInput.click();
+      return; // the change handler will process the files
     }
   }
 
@@ -226,28 +223,54 @@ function handleFolderResult(result) {
 
   saveLibrary(newAlbums).catch(e => console.warn('[app] DB save failed:', e));
 
+  // Always clear auth banner after successful load
+  needsAuthBanner = false;
+  authBanner.classList.add('hidden');
+
   if (dirHandle) {
     storedHandle = dirHandle;
     saveHandle(dirHandle).catch(e => console.warn('[app] Handle save failed:', e));
     rescanBtn.classList.remove('hidden');
-    needsAuthBanner = false;
-    authBanner.classList.add('hidden');
   }
 }
 
 // --- Folder button ---
-folderBtn.addEventListener('click', async () => {
+// Desktop: intercept click and use showDirectoryPicker (hides the file input)
+// Mobile: the <input> inside the <label> triggers natively — no JS click needed
+if (hasNativePicker) {
+  // Hide the file input on desktop — we don't need it
+  musicInput.style.display = 'none';
+
+  folderBtn.addEventListener('click', async (e) => {
+    e.preventDefault();
+    try {
+      const result = await openMusicFolder();
+      if (!result) return;
+      handleFolderResult(result);
+    } catch (err) {
+      console.error('[app] Failed to load music folder:', err);
+    }
+  });
+}
+
+// Mobile path: the native <input> fires change when user picks files
+musicInput.addEventListener('change', async () => {
+  if (!musicInput.files || musicInput.files.length === 0) return;
+
+  console.log(`[app] Input picked ${musicInput.files.length} file(s)`);
+
   try {
-    const result = await openMusicFolder();
-    if (!result) return; // user cancelled
-    if (result.albums.length === 0) {
-      showToast('No audio files found — tap folder again to select files');
+    const result = await processPickedFiles(musicInput.files);
+    if (!result || result.albums.length === 0) {
+      showToast('No audio files found');
       return;
     }
     handleFolderResult(result);
   } catch (e) {
-    console.error('[app] Failed to load music folder:', e);
-    showToast('Failed to load music folder');
+    console.error('[app] Failed to process files:', e);
+    showToast('Failed to load music');
+  } finally {
+    musicInput.value = ''; // reset so re-selecting same folder triggers change
   }
 });
 
@@ -291,16 +314,9 @@ authBanner.addEventListener('click', async () => {
       console.warn('[app] Permission request failed:', e);
     }
   } else {
-    // Mobile: no handle to restore — re-pick the folder
-    try {
-      const result = await openMusicFolder();
-      if (!result) return;
-      handleFolderResult(result);
-      needsAuthBanner = false;
-      authBanner.classList.add('hidden');
-    } catch (e) {
-      console.warn('[app] Re-pick failed:', e);
-    }
+    // Mobile: no handle to restore — trigger the native file input
+    musicInput.click();
+    // The change handler will process files and hide the banner
   }
 });
 
