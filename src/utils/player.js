@@ -150,8 +150,9 @@ function playTrack(index) {
   });
 }
 
-// Log audio errors for debugging
+// Log audio errors for debugging (ignore empty src from unlock)
 audio.addEventListener('error', () => {
+  if (!audio.src || audio.src === location.href) return;
   const err = audio.error;
   console.warn(`[player] Audio error: code=${err?.code} message="${err?.message}"`);
   emit('playstate-change', { playing: false });

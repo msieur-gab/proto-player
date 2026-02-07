@@ -109,6 +109,11 @@ class RingCarousel extends HTMLElement {
     this._selectedIndex = 0;
     this._paletteCache.clear();
 
+    // Reset all pool entries so _syncPool reassigns fresh album data
+    for (const entry of this._pool) {
+      entry.albumIndex = -1;
+    }
+
     if (!this._pool.length) this._createPool();
     this._syncPool();
     this._positionCards();
