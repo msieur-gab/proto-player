@@ -137,8 +137,27 @@ function collapse() {
 detail.addEventListener('detail-close', collapse);
 
 // --- Track play events from album-detail ---
-detail.addEventListener('track-play', (e) => {
+detail.addEventListener('track-play', async (e) => {
   const { album, trackIndex } = e.detail;
+
+  // If fileMap is empty and we have a stored handle, request permission now
+  // (we're inside a user gesture from the track click)
+  if (!player.hasFiles() && storedHandle) {
+    try {
+      const perm = await storedHandle.requestPermission({ mode: 'read' });
+      if (perm === 'granted') {
+        needsAuthBanner = false;
+        authBanner.classList.add('hidden');
+        await doRescan(storedHandle);
+      } else {
+        return;
+      }
+    } catch (err) {
+      console.warn('[app] Permission request failed:', err);
+      return;
+    }
+  }
+
   player.loadAlbum(album, trackIndex);
   detail.setPlayingTrack(trackIndex);
 });
