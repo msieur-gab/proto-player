@@ -18,10 +18,18 @@ const AUDIO_EXTENSIONS = new Set([
   '.mp3', '.m4a', '.aac', '.flac', '.ogg', '.opus', '.wav', '.webm',
 ]);
 
-function isAudioFile(name) {
+const AUDIO_MIME_PREFIXES = ['audio/'];
+
+function isAudioFile(fileOrName) {
+  // Accept either a File object or a filename string
+  const name = typeof fileOrName === 'string' ? fileOrName : fileOrName.name;
   const dot = name.lastIndexOf('.');
-  if (dot === -1) return false;
-  return AUDIO_EXTENSIONS.has(name.slice(dot).toLowerCase());
+  if (dot !== -1 && AUDIO_EXTENSIONS.has(name.slice(dot).toLowerCase())) return true;
+  // Fallback: check MIME type (Android SAF may not preserve extensions)
+  if (typeof fileOrName === 'object' && fileOrName.type) {
+    return AUDIO_MIME_PREFIXES.some(p => fileOrName.type.startsWith(p));
+  }
+  return false;
 }
 
 const CONCURRENCY = 5;
@@ -59,10 +67,10 @@ export async function rescanFolder(dirHandle) {
  * Process an array of File objects into albums + fileMap
  */
 async function processFiles(files) {
-  const audioFiles = files.filter(f => isAudioFile(f.name));
+  const audioFiles = files.filter(f => isAudioFile(f));
   if (audioFiles.length === 0) return null;
 
-  console.log(`[file-loader] Found ${audioFiles.length} audio file(s)`);
+  console.log(`[file-loader] Processing ${audioFiles.length} audio file(s)`);
 
   const fileMap = new Map();
 
@@ -150,36 +158,65 @@ async function pickFiles() {
     }
   }
 
-  // Mobile / Firefox fallback: hidden <input webkitdirectory>
-  return pickFilesViaInput();
+  // Mobile / Firefox: folder picker via <input webkitdirectory>
+  // If that yields nothing, fall back to plain multi-file picker
+  const folderResult = await pickFilesViaInput(true);
+  if (folderResult && folderResult.files.length > 0) return folderResult;
+
+  console.log('[file-loader] Folder picker returned no audio files, trying file picker...');
+  return pickFilesViaInput(false);
 }
 
-function pickFilesViaInput() {
+/**
+ * @param {boolean} folderMode — true = webkitdirectory (folder), false = multi-file select
+ */
+function pickFilesViaInput(folderMode) {
   return new Promise((resolve) => {
     const input = document.createElement('input');
     input.type = 'file';
     input.multiple = true;
-    input.setAttribute('webkitdirectory', '');
-    input.setAttribute('directory', '');
-    input.accept = 'audio/*';
+
+    if (folderMode) {
+      // Don't set accept with webkitdirectory — Android SAF conflicts with it
+      input.setAttribute('webkitdirectory', '');
+      input.setAttribute('directory', '');
+    } else {
+      // Plain file picker — accept filters the OS-level picker
+      input.accept = 'audio/*';
+    }
 
     input.addEventListener('change', () => {
       if (!input.files || input.files.length === 0) {
-        resolve(null);
+        console.log('[file-loader] Picker returned 0 files');
+        resolve({ files: [], dirHandle: null });
         return;
       }
+
+      console.log(`[file-loader] Picker returned ${input.files.length} raw file(s)`);
+
       const files = [];
       for (const file of input.files) {
-        if (isAudioFile(file.name)) {
+        if (isAudioFile(file)) {
           file._relativePath = file.webkitRelativePath || file.name;
           files.push(file);
         }
       }
-      console.log(`[file-loader] Input picker: ${files.length} audio file(s)`);
+
+      console.log(`[file-loader] After audio filter: ${files.length} file(s)`);
+      if (files.length === 0 && input.files.length > 0) {
+        // Log what we rejected so we can debug
+        const sample = Array.from(input.files).slice(0, 5)
+          .map(f => `"${f.name}" (${f.type})`).join(', ');
+        console.warn(`[file-loader] Rejected all files. Sample: ${sample}`);
+      }
+
       resolve({ files, dirHandle: null });
     }, { once: true });
 
-    input.addEventListener('cancel', () => resolve(null), { once: true });
+    input.addEventListener('cancel', () => {
+      console.log('[file-loader] Picker cancelled');
+      resolve(null);
+    }, { once: true });
 
     input.click();
   });

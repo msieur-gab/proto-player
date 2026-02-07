@@ -50,6 +50,20 @@ let storedHandle = null;
 let hasRealLibrary = false;
 let needsAuthBanner = false;
 
+function showToast(message) {
+  const toast = document.querySelector('.pwa-toast');
+  const span = toast.querySelector('span');
+  const btn = toast.querySelector('button');
+  span.textContent = message;
+  btn.style.display = 'none';
+  toast.classList.remove('hidden');
+  setTimeout(() => {
+    toast.classList.add('hidden');
+    span.textContent = 'App updated';
+    btn.style.display = '';
+  }, 3000);
+}
+
 function populateCarousel(newAlbums) {
   // Collapse detail if open
   if (expanded !== null) {
@@ -225,10 +239,15 @@ function handleFolderResult(result) {
 folderBtn.addEventListener('click', async () => {
   try {
     const result = await openMusicFolder();
-    if (!result) return;
+    if (!result) {
+      // Only show feedback if user didn't cancel (cancel returns null early)
+      showToast('No audio files found — try a different folder');
+      return;
+    }
     handleFolderResult(result);
   } catch (e) {
     console.error('[app] Failed to load music folder:', e);
+    showToast('Failed to load music folder');
   }
 });
 
