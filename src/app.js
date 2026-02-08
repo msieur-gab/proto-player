@@ -43,8 +43,6 @@ const playerBar = document.querySelector('player-bar');
 
 // State
 let albums = [];
-let palettes = [];
-let cardEls = [];
 let expanded = null;
 let storedHandle = null;
 let hasRealLibrary = false;
@@ -52,33 +50,15 @@ let hasRealLibrary = false;
 function populateCarousel(newAlbums) {
   // Collapse detail if open
   if (expanded !== null) {
-    detail.close(cardEls[expanded].getRect());
+    const rect = carousel.getCardRect(expanded);
+    if (rect) detail.close(rect);
     carousel.removeAttribute('dimmed');
     header.classList.remove('hidden');
     expanded = null;
   }
 
-  // Clear existing cards
-  while (carousel.firstChild) {
-    carousel.removeChild(carousel.firstChild);
-  }
-
   albums = newAlbums;
-  palettes = new Array(albums.length).fill(null);
-  cardEls = [];
-
-  albums.forEach((album, i) => {
-    const card = document.createElement('album-card');
-    card.album = album;
-
-    card.addEventListener('palette-ready', (e) => {
-      palettes[i] = e.detail.palette;
-    });
-
-    card.addEventListener('click', () => onCardClick(i));
-    carousel.appendChild(card);
-    cardEls.push(card);
-  });
+  carousel.setAlbums(albums);
 
   // Update header with first album
   if (albums.length > 0) {
@@ -96,7 +76,8 @@ carousel.addEventListener('selection-changed', (e) => {
 });
 
 // Expand / Collapse coordination
-function onCardClick(i) {
+carousel.addEventListener('card-click', (e) => {
+  const i = e.detail.index;
   if (expanded !== null || carousel.dragMoved) return;
 
   if (carousel.selectedIndex !== i) {
@@ -105,28 +86,31 @@ function onCardClick(i) {
   } else {
     expand(i);
   }
-}
+});
 
 function expand(i) {
   if (expanded !== null) return;
   expanded = i;
 
-  const rect = cardEls[i].getRect();
-  cardEls[i].setAttribute('expanding', '');
+  const rect = carousel.getCardRect(i);
+  const cardEl = carousel.getCardElement(i);
+  if (cardEl) cardEl.setAttribute('expanding', '');
   carousel.setAttribute('dimmed', '');
   header.classList.add('hidden');
   folderBtn.classList.add('hidden');
   rescanBtn.classList.add('hidden');
 
-  detail.open(albums[i], palettes[i], rect);
+  const palette = carousel.getPalette(i);
+  detail.open(albums[i], palette, rect);
 }
 
 function collapse() {
   if (expanded === null) return;
   const i = expanded;
-  const rect = cardEls[i].getRect();
+  const rect = carousel.getCardRect(i);
+  const cardEl = carousel.getCardElement(i);
 
-  detail.close(rect);
+  detail.close(rect || detail.getBoundingClientRect());
 
   // Reveal carousel + header when surface starts shrinking back
   setTimeout(() => {
@@ -134,13 +118,13 @@ function collapse() {
     header.classList.remove('hidden');
     folderBtn.classList.remove('hidden');
     if (storedHandle) rescanBtn.classList.remove('hidden');
-  }, 180);
+  }, 120);
 
   // Cleanup after full animation
   setTimeout(() => {
-    cardEls[i].removeAttribute('expanding');
+    if (cardEl) cardEl.removeAttribute('expanding');
     expanded = null;
-  }, 730);
+  }, 470);
 }
 
 detail.addEventListener('detail-close', collapse);
