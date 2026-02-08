@@ -234,9 +234,12 @@ function pictureToURL(picture) {
 
 // --- File picking ---
 
+// Mobile browsers may define showDirectoryPicker but fail when calling it
+const isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+
 async function pickFiles() {
-  // Try File System Access API first (desktop Chromium, secure context)
-  if (window.showDirectoryPicker) {
+  // File System Access API — desktop Chromium only (skip on mobile)
+  if (window.showDirectoryPicker && !isMobile) {
     try {
       console.log('[file-loader] Using File System Access API');
       const dirHandle = await window.showDirectoryPicker();
