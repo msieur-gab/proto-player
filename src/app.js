@@ -2,9 +2,32 @@ import './components/album-card.js';
 import './components/ring-carousel.js';
 import './components/album-detail.js';
 import './components/player-bar.js';
-import { openMusicFolder, processPickedFiles, rescanFolder } from './utils/file-loader.js';
+import { openMusicFolder, processPickedFiles, rescanFolder, resolveDurations, onScanProgress } from './utils/file-loader.js';
 import { saveLibrary, loadLibrary, saveHandle, loadHandle } from './utils/db.js';
 import * as player from './utils/player.js';
+
+// Keep a reference to the current fileMap for lazy duration resolution
+let currentFileMap = null;
+
+// --- Scan progress UI ---
+const scanProgress = document.querySelector('.scan-progress');
+const scanText = document.querySelector('.scan-progress__text');
+const scanFill = document.querySelector('.scan-progress__fill');
+
+onScanProgress(({ scanned, total }) => {
+  if (scanned === 0) {
+    scanProgress.classList.remove('hidden');
+    scanFill.style.width = '0%';
+    scanText.textContent = `Scanning 0 / ${total} tracks...`;
+  } else if (scanned >= total) {
+    scanText.textContent = `Found ${total} tracks — building library...`;
+    scanFill.style.width = '100%';
+    setTimeout(() => scanProgress.classList.add('hidden'), 600);
+  } else {
+    scanText.textContent = `Scanning ${scanned} / ${total} tracks...`;
+    scanFill.style.width = `${(scanned / total * 100).toFixed(1)}%`;
+  }
+});
 
 // Seeded RNG for reproducible track names
 const rng = (seed) => () => (seed = (seed * 16807) % 2147483647, (seed - 1) / 2147483646);
@@ -123,6 +146,14 @@ function expand(i) {
 
   const palette = carousel.getPalette(i);
   detail.open(albums[i], palette, rect);
+
+  // Lazy-resolve durations for this album's tracks
+  if (currentFileMap && albums[i].tracks.some(t => t.dur === '--:--')) {
+    resolveDurations(albums[i].tracks, currentFileMap).then(() => {
+      // Re-render track list with actual durations
+      if (expanded === i) detail.updateTracks(albums[i].tracks);
+    });
+  }
 }
 
 function collapse() {
@@ -216,6 +247,7 @@ function handleFolderResult(result) {
 
   console.log(`[app] Loaded ${newAlbums.length} album(s)`);
 
+  currentFileMap = fileMap;
   player.setFileMap(fileMap);
   populateCarousel(newAlbums);
   hasRealLibrary = true;
@@ -320,6 +352,7 @@ authBanner.addEventListener('click', async () => {
 async function doRescan(handle) {
   const result = await rescanFolder(handle);
   if (result) {
+    currentFileMap = result.fileMap;
     player.setFileMap(result.fileMap);
     if (result.albums.length > 0) {
       populateCarousel(result.albums);

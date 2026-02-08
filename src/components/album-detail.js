@@ -243,6 +243,16 @@ class AlbumDetail extends HTMLElement {
     });
   }
 
+  updateTracks(tracks) {
+    const items = this._tracks.querySelectorAll('li');
+    items.forEach((li, i) => {
+      if (tracks[i]) {
+        const time = li.querySelector('time');
+        if (time) time.textContent = tracks[i].dur;
+      }
+    });
+  }
+
   open(album, palette, originRect) {
     this._album = album;
 

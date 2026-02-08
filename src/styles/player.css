@@ -203,3 +203,39 @@ body::after {
   from { opacity: 0; transform: translateY(1rem); }
   to   { opacity: 1; transform: translateY(0); }
 }
+
+.scan-progress {
+  position: fixed;
+  bottom: 5rem;
+  left: 1rem;
+  right: 1rem;
+  z-index: 50;
+  padding: 0.75rem 1.25rem;
+  border-radius: 12px;
+  background: rgba(255, 253, 249, 0.92);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  box-shadow: 0 4px 20px rgba(26, 23, 20, 0.12);
+  transition: opacity 0.4s, transform 0.4s;
+  animation: slideUp 0.4s ease both;
+}
+.scan-progress.hidden { opacity: 0; transform: translateY(1rem); pointer-events: none; display: none; }
+.scan-progress__text {
+  font-size: 0.8rem;
+  color: var(--text-primary);
+  display: block;
+  margin-bottom: 0.4rem;
+}
+.scan-progress__bar {
+  height: 3px;
+  border-radius: 2px;
+  background: rgba(26, 23, 20, 0.08);
+  overflow: hidden;
+}
+.scan-progress__fill {
+  height: 100%;
+  border-radius: 2px;
+  background: var(--text-primary);
+  width: 0%;
+  transition: width 0.15s ease-out;
+}

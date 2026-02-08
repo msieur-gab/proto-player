@@ -22,7 +22,23 @@ const PLACEHOLDER_COVER = `data:image/svg+xml,${encodeURIComponent(
   </svg>`
 )}`;
 
-const CONCURRENCY = 5;
+const CONCURRENCY = 10;
+
+// --- Progress reporting ---
+
+let _onProgress = null;
+
+/**
+ * Set a callback to receive scan progress updates.
+ * Callback shape: ({ scanned, total }) => void
+ */
+export function onScanProgress(fn) {
+  _onProgress = fn;
+}
+
+function reportProgress(scanned, total) {
+  if (_onProgress) _onProgress({ scanned, total });
+}
 
 /**
  * Open a music folder, scan for audio files, extract metadata
@@ -78,32 +94,56 @@ export async function rescanFolder(dirHandle) {
 }
 
 /**
+ * Resolve durations for an album's tracks using fileMap.
+ * Called lazily when album detail opens.
+ * @param {Array} tracks - [{ title, dur, path }]
+ * @param {Map} fileMap
+ * @returns {Promise<void>} mutates tracks in place
+ */
+export async function resolveDurations(tracks, fileMap) {
+  const pending = tracks.filter(t => t.dur === '--:--' && fileMap.has(t.path));
+  if (pending.length === 0) return;
+
+  await Promise.all(pending.map(async (track) => {
+    const file = fileMap.get(track.path);
+    if (!file) return;
+    const dur = await getDuration(file);
+    track.dur = formatDuration(dur);
+  }));
+}
+
+/**
  * Process an array of File objects into albums + fileMap
+ * Tags only — duration is deferred to keep scan fast
  */
 async function processFiles(files) {
   const audioFiles = files.filter(f => isAudioFile(f.name));
   if (audioFiles.length === 0) return null;
 
   const fileMap = new Map();
+  const total = audioFiles.length;
+  let scanned = 0;
 
-  // Parse tags + get duration with concurrency limit
+  reportProgress(0, total);
+
+  // Parse tags only (no duration) with concurrency limit
   const parsed = (await mapWithLimit(audioFiles, CONCURRENCY, async (file) => {
     try {
-      const [tags, duration] = await Promise.all([
-        readTags(file),
-        getDuration(file),
-      ]);
-      return { file, tags, duration };
+      const tags = await readTags(file);
+      return { file, tags };
     } catch (e) {
       console.warn(`[file-loader] skipping ${file.name}:`, e);
       return null;
+    } finally {
+      scanned++;
+      reportProgress(scanned, total);
     }
   })).filter(Boolean);
 
   // Group by album + artist
   const albumMap = new Map();
 
-  for (const { file, tags, duration } of parsed) {
+  for (const { file, tags } of parsed) {
     const albumKey = `${tags.album || 'Unknown Album'}|||${tags.artist || 'Unknown Artist'}`;
 
     if (!albumMap.has(albumKey)) {
@@ -127,7 +167,7 @@ async function processFiles(files) {
 
     entry.tracks.push({
       title: tags.title || cleanFilename(file.name),
-      dur: formatDuration(duration),
+      dur: '--:--',  // deferred — resolved when album detail opens
       trackNum: parseTrackNumber(tags.track),
       path,
     });
