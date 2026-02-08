@@ -1,5 +1,5 @@
 // Dexie.js persistence layer for ProtoPlayer
-import Dexie from 'https://unpkg.com/dexie@4/dist/dexie.mjs';
+import Dexie from 'https://cdn.jsdelivr.net/npm/dexie@4.3.0/+esm';
 
 const db = new Dexie('ProtoPlayerDB');
 
