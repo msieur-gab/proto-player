@@ -267,22 +267,20 @@ function handleFolderResult(result) {
 }
 
 // --- Folder button ---
-// Desktop: intercept click and use showDirectoryPicker
-// Mobile: the <input> inside the <label> triggers natively
-if (hasNativePicker) {
-  musicInput.style.display = 'none';
+// Always intercept click and route through openMusicFolder(),
+// which picks the right strategy (showDirectoryPicker or <input webkitdirectory>)
+musicInput.style.display = 'none';
 
-  folderBtn.addEventListener('click', async (e) => {
-    e.preventDefault();
-    try {
-      const result = await openMusicFolder();
-      if (!result) return;
-      handleFolderResult(result);
-    } catch (err) {
-      console.error('[app] Failed to load music folder:', err);
-    }
-  });
-}
+folderBtn.addEventListener('click', async (e) => {
+  e.preventDefault();
+  try {
+    const result = await openMusicFolder();
+    if (!result) return;
+    handleFolderResult(result);
+  } catch (err) {
+    console.error('[app] Failed to load music folder:', err);
+  }
+});
 
 // Mobile path: the native <input> fires change when user picks files
 musicInput.addEventListener('change', async () => {
