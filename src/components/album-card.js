@@ -18,7 +18,7 @@ template.innerHTML = `
 
     figure {
       margin: 0;
-      width: 92px;
+      width: 120px;
       border-radius: 10px;
       overflow: hidden;
       background: #fffdf9;
@@ -29,7 +29,7 @@ template.innerHTML = `
       transform: scale(1.15);
       box-shadow: 0 8px 32px rgba(26, 23, 20, 0.15);
     }
-    @media (min-width: 768px) { figure { width: 112px; } }
+    @media (min-width: 768px) { figure { width: 146px; } }
 
     img {
       width: 100%;
@@ -37,10 +37,10 @@ template.innerHTML = `
       display: block;
       object-fit: cover;
     }
-    figcaption { padding: 0.4rem 0.5rem 0.5rem; }
+    figcaption { padding: 0.5rem 0.6rem 0.6rem; }
     strong {
       display: block;
-      font-size: 0.6rem;
+      font-size: 0.7rem;
       font-weight: 500;
       white-space: nowrap;
       overflow: hidden;
@@ -49,7 +49,7 @@ template.innerHTML = `
     }
     small {
       display: block;
-      font-size: 0.5rem;
+      font-size: 0.6rem;
       font-weight: 300;
       color: #a09889;
       white-space: nowrap;
@@ -59,7 +59,7 @@ template.innerHTML = `
     }
   </style>
   <figure>
-    <img crossorigin="anonymous" draggable="false" loading="lazy" alt="">
+    <img draggable="false" alt="">
     <figcaption>
       <strong></strong>
       <small></small>
@@ -78,6 +78,7 @@ class AlbumCard extends HTMLElement {
     this._title = this.shadowRoot.querySelector('strong');
     this._artist = this.shadowRoot.querySelector('small');
     this._palette = null;
+    this._loadHandler = null;
   }
 
   set album(data) {
@@ -86,8 +87,19 @@ class AlbumCard extends HTMLElement {
     this._artist.textContent = data.artist;
     this._img.alt = data.title;
 
-    this._img.addEventListener('load', () => {
-      this._palette = extractPalette(this._img);
+    if (this._loadHandler) {
+      this._img.removeEventListener('load', this._loadHandler);
+    }
+    if (this._errorHandler) {
+      this._img.removeEventListener('error', this._errorHandler);
+    }
+
+    this._loadHandler = () => {
+      try {
+        this._palette = extractPalette(this._img);
+      } catch {
+        this._palette = null;
+      }
       if (this._palette) {
         this._img.style.backgroundColor = rgb(this._palette[0]);
       }
@@ -95,7 +107,24 @@ class AlbumCard extends HTMLElement {
         detail: { palette: this._palette },
         bubbles: true,
       }));
-    }, { once: true });
+      this._img.removeEventListener('load', this._loadHandler);
+      this._loadHandler = null;
+    };
+    this._errorHandler = () => {
+      console.warn(`[album-card] Image failed to load for "${data.title}"`);
+      this._img.removeEventListener('error', this._errorHandler);
+      this._errorHandler = null;
+    };
+    this._img.addEventListener('load', this._loadHandler);
+    this._img.addEventListener('error', this._errorHandler, { once: true });
+
+    // Only set crossorigin for external URLs (needed for canvas palette extraction).
+    // Blob URLs and data URIs are same-origin — crossorigin can block them in Chrome.
+    if (data.cover && data.cover.startsWith('http')) {
+      this._img.crossOrigin = 'anonymous';
+    } else {
+      this._img.removeAttribute('crossorigin');
+    }
 
     this._img.src = data.cover;
   }
