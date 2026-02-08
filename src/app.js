@@ -2,7 +2,7 @@ import './components/album-card.js';
 import './components/ring-carousel.js';
 import './components/album-detail.js';
 import './components/player-bar.js';
-import { openMusicFolder, rescanFolder } from './utils/file-loader.js';
+import { openMusicFolder, processPickedFiles, rescanFolder } from './utils/file-loader.js';
 import { saveLibrary, loadLibrary, saveHandle, loadHandle } from './utils/db.js';
 import * as player from './utils/player.js';
 
@@ -38,14 +38,33 @@ const hSub = document.querySelector('.header__sub');
 const carousel = document.querySelector('ring-carousel');
 const detail = document.querySelector('album-detail');
 const folderBtn = document.querySelector('.folder-btn');
+const musicInput = document.getElementById('music-input');
 const rescanBtn = document.querySelector('.rescan-btn');
+const installBtn = document.querySelector('.install-btn');
+const authBanner = document.querySelector('.auth-banner');
 const playerBar = document.querySelector('player-bar');
+const hasNativePicker = !!window.showDirectoryPicker;
 
 // State
 let albums = [];
 let expanded = null;
 let storedHandle = null;
 let hasRealLibrary = false;
+let needsAuthBanner = false;
+
+function showToast(message) {
+  const toast = document.querySelector('.pwa-toast');
+  const span = toast.querySelector('span');
+  const btn = toast.querySelector('button');
+  span.textContent = message;
+  btn.style.display = 'none';
+  toast.classList.remove('hidden');
+  setTimeout(() => {
+    toast.classList.add('hidden');
+    span.textContent = 'App updated';
+    btn.style.display = '';
+  }, 3000);
+}
 
 function populateCarousel(newAlbums) {
   // Collapse detail if open
@@ -99,6 +118,8 @@ function expand(i) {
   header.classList.add('hidden');
   folderBtn.classList.add('hidden');
   rescanBtn.classList.add('hidden');
+  installBtn.classList.add('hidden');
+  authBanner.classList.add('hidden');
 
   const palette = carousel.getPalette(i);
   detail.open(albums[i], palette, rect);
@@ -118,6 +139,8 @@ function collapse() {
     header.classList.remove('hidden');
     folderBtn.classList.remove('hidden');
     if (storedHandle) rescanBtn.classList.remove('hidden');
+    if (window._deferredInstallPrompt) installBtn.classList.remove('hidden');
+    if (needsAuthBanner) authBanner.classList.remove('hidden');
   }, 120);
 
   // Cleanup after full animation
@@ -130,8 +153,33 @@ function collapse() {
 detail.addEventListener('detail-close', collapse);
 
 // --- Track play events from album-detail ---
-detail.addEventListener('track-play', (e) => {
+detail.addEventListener('track-play', async (e) => {
   const { album, trackIndex } = e.detail;
+
+  // If fileMap is empty, try to get files back (we're inside a user gesture)
+  if (!player.hasFiles()) {
+    if (storedHandle) {
+      // Desktop: re-request permission on the stored handle
+      try {
+        const perm = await storedHandle.requestPermission({ mode: 'read' });
+        if (perm === 'granted') {
+          needsAuthBanner = false;
+          authBanner.classList.add('hidden');
+          await doRescan(storedHandle);
+        } else {
+          return;
+        }
+      } catch (err) {
+        console.warn('[app] Permission request failed:', err);
+        return;
+      }
+    } else if (hasRealLibrary) {
+      // Mobile: no stored handle — trigger the native file input
+      musicInput.click();
+      return;
+    }
+  }
+
   player.loadAlbum(album, trackIndex);
   detail.setPlayingTrack(trackIndex);
 });
@@ -161,31 +209,66 @@ playerBar.addEventListener('bar-prev', () => player.prev());
 playerBar.addEventListener('bar-next', () => player.next());
 playerBar.addEventListener('bar-seek', (e) => player.seek(e.detail.fraction));
 
+// --- Shared folder result handler ---
+function handleFolderResult(result) {
+  const { albums: newAlbums, fileMap, dirHandle } = result;
+  if (newAlbums.length === 0) return;
+
+  console.log(`[app] Loaded ${newAlbums.length} album(s)`);
+
+  player.setFileMap(fileMap);
+  populateCarousel(newAlbums);
+  hasRealLibrary = true;
+
+  saveLibrary(newAlbums).catch(e => console.warn('[app] DB save failed:', e));
+
+  // Clear auth banner after successful load
+  needsAuthBanner = false;
+  authBanner.classList.add('hidden');
+
+  if (dirHandle) {
+    storedHandle = dirHandle;
+    saveHandle(dirHandle).catch(e => console.warn('[app] Handle save failed:', e));
+    rescanBtn.classList.remove('hidden');
+  }
+}
+
 // --- Folder button ---
-folderBtn.addEventListener('click', async () => {
-  try {
-    const result = await openMusicFolder();
-    if (!result) return;
+// Desktop: intercept click and use showDirectoryPicker
+// Mobile: the <input> inside the <label> triggers natively
+if (hasNativePicker) {
+  musicInput.style.display = 'none';
 
-    const { albums: newAlbums, fileMap, dirHandle } = result;
-    if (newAlbums.length === 0) return;
-
-    console.log(`[app] Loaded ${newAlbums.length} album(s)`);
-
-    player.setFileMap(fileMap);
-    populateCarousel(newAlbums);
-    hasRealLibrary = true;
-
-    // Persist to IndexedDB
-    saveLibrary(newAlbums).catch(e => console.warn('[app] DB save failed:', e));
-
-    if (dirHandle) {
-      storedHandle = dirHandle;
-      saveHandle(dirHandle).catch(e => console.warn('[app] Handle save failed:', e));
-      rescanBtn.classList.remove('hidden');
+  folderBtn.addEventListener('click', async (e) => {
+    e.preventDefault();
+    try {
+      const result = await openMusicFolder();
+      if (!result) return;
+      handleFolderResult(result);
+    } catch (err) {
+      console.error('[app] Failed to load music folder:', err);
     }
+  });
+}
+
+// Mobile path: the native <input> fires change when user picks files
+musicInput.addEventListener('change', async () => {
+  if (!musicInput.files || musicInput.files.length === 0) return;
+
+  console.log(`[app] Input picked ${musicInput.files.length} file(s)`);
+
+  try {
+    const result = await processPickedFiles(musicInput.files);
+    if (!result || result.albums.length === 0) {
+      showToast('No audio files found');
+      return;
+    }
+    handleFolderResult(result);
   } catch (e) {
-    console.error('[app] Failed to load music folder:', e);
+    console.error('[app] Failed to process files:', e);
+    showToast('Failed to load music');
+  } finally {
+    musicInput.value = '';
   }
 });
 
@@ -214,6 +297,38 @@ rescanBtn.addEventListener('click', async () => {
   }
 });
 
+// --- Auth banner ---
+authBanner.addEventListener('click', async () => {
+  if (storedHandle) {
+    // Desktop: re-request permission
+    try {
+      const perm = await storedHandle.requestPermission({ mode: 'read' });
+      if (perm === 'granted') {
+        needsAuthBanner = false;
+        authBanner.classList.add('hidden');
+        await doRescan(storedHandle);
+      }
+    } catch (e) {
+      console.warn('[app] Permission request failed:', e);
+    }
+  } else {
+    // Mobile: no handle to restore — trigger the native file input
+    musicInput.click();
+  }
+});
+
+async function doRescan(handle) {
+  const result = await rescanFolder(handle);
+  if (result) {
+    player.setFileMap(result.fileMap);
+    if (result.albums.length > 0) {
+      populateCarousel(result.albums);
+      hasRealLibrary = true;
+      saveLibrary(result.albums).catch(e => console.warn('[app] DB update failed:', e));
+    }
+  }
+}
+
 // --- Startup sequence ---
 async function init() {
   // 1. Try loading cached library from IndexedDB
@@ -235,22 +350,22 @@ async function init() {
       storedHandle = handle;
       rescanBtn.classList.remove('hidden');
 
-      // Request permission and rescan in background
-      const perm = await handle.requestPermission({ mode: 'read' });
+      // queryPermission doesn't trigger a prompt — just checks current state
+      const perm = await handle.queryPermission({ mode: 'read' });
       if (perm === 'granted') {
-        console.log('[app] Handle permission granted, rescanning...');
-        const result = await rescanFolder(handle);
-        if (result) {
-          player.setFileMap(result.fileMap);
-          // Only update carousel if we got results
-          if (result.albums.length > 0) {
-            populateCarousel(result.albums);
-            saveLibrary(result.albums).catch(e => console.warn('[app] DB update failed:', e));
-          }
-        }
+        console.log('[app] Handle permission already granted, rescanning...');
+        await doRescan(handle);
       } else {
-        console.log('[app] Handle permission denied — playback disabled until folder re-opened');
+        console.log('[app] Handle permission not granted, showing auth banner');
+        needsAuthBanner = true;
+        authBanner.classList.remove('hidden');
       }
+    } else if (hasRealLibrary) {
+      // Mobile reopen: cached library exists but no handle to restore
+      console.log('[app] No stored handle, showing reload banner');
+      needsAuthBanner = true;
+      authBanner.textContent = 'Tap to reload your music folder';
+      authBanner.classList.remove('hidden');
     }
   } catch (e) {
     console.warn('[app] Failed to restore directory handle:', e);

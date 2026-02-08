@@ -16,6 +16,10 @@ export function setFileMap(map) {
   fileMap = map;
 }
 
+export function hasFiles() {
+  return fileMap.size > 0;
+}
+
 export function loadAlbum(album, startIndex = 0) {
   currentAlbum = album;
   playTrack(startIndex);

@@ -42,6 +42,30 @@ export async function openMusicFolder() {
 }
 
 /**
+ * Process files from a native <input type="file"> (mobile path)
+ * @param {FileList} fileList
+ * @returns {Promise<{ albums, fileMap, dirHandle: null }|null>}
+ */
+export async function processPickedFiles(fileList) {
+  const files = [];
+  for (const file of fileList) {
+    if (isAudioFile(file.name)) {
+      file._relativePath = file.webkitRelativePath || file.name;
+      files.push(file);
+    }
+  }
+
+  console.log(`[file-loader] processPickedFiles: ${files.length} audio out of ${fileList.length} total`);
+
+  if (files.length === 0) return null;
+
+  const result = await processFiles(files);
+  if (!result) return null;
+
+  return { albums: result.albums, fileMap: result.fileMap, dirHandle: null };
+}
+
+/**
  * Re-scan a stored directory handle without showing picker
  * @param {FileSystemDirectoryHandle} dirHandle
  * @returns {Promise<{ albums, fileMap }|null>}
