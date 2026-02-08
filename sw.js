@@ -1,4 +1,4 @@
-const CACHE_NAME = 'proto-player-v20';
+const CACHE_NAME = 'proto-player-v21';
 
 const APP_SHELL = [
   './',

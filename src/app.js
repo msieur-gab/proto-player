@@ -67,7 +67,6 @@ const installBtn = document.querySelector('.install-btn');
 const authBanner = document.querySelector('.auth-banner');
 const playerBar = document.querySelector('player-bar');
 const isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
-const hasNativePicker = !!window.showDirectoryPicker && !isMobile;
 
 // State
 let albums = [];
