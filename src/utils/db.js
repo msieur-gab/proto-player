@@ -14,37 +14,43 @@ db.version(1).stores({
  * @param {Array} albums — [{ title, artist, cover (blob/data URL), tracks: [{ title, dur, path }] }]
  */
 export async function saveLibrary(albums) {
+  // Fetch cover art BEFORE the transaction — fetch() is non-Dexie async
+  // and would cause PrematureCommitError inside a transaction
+  const covers = await Promise.all(albums.map(async (album) => {
+    if (album.cover && !album.cover.startsWith('data:image/svg+xml')) {
+      try {
+        const resp = await fetch(album.cover);
+        return {
+          data: await resp.arrayBuffer(),
+          mime: resp.headers.get('content-type') || 'image/jpeg',
+        };
+      } catch (e) {
+        console.warn('[db] Could not store cover art:', e);
+      }
+    }
+    return null;
+  }));
+
   await db.transaction('rw', db.albums, db.tracks, async () => {
     await db.albums.clear();
     await db.tracks.clear();
 
-    for (const album of albums) {
-      // Convert cover blob URL or data URL to ArrayBuffer for storage
-      let coverData = null;
-      let coverMime = null;
-
-      if (album.cover && !album.cover.startsWith('data:image/svg+xml')) {
-        try {
-          const resp = await fetch(album.cover);
-          coverData = await resp.arrayBuffer();
-          coverMime = resp.headers.get('content-type') || 'image/jpeg';
-        } catch (e) {
-          console.warn('[db] Could not store cover art:', e);
-        }
-      }
+    for (let i = 0; i < albums.length; i++) {
+      const album = albums[i];
+      const cover = covers[i];
 
       const albumId = await db.albums.add({
         title: album.title,
         artist: album.artist,
-        coverData,
-        coverMime,
+        coverData: cover ? cover.data : null,
+        coverMime: cover ? cover.mime : null,
       });
 
-      const trackRows = album.tracks.map((t, i) => ({
+      const trackRows = album.tracks.map((t, j) => ({
         albumId,
         title: t.title,
         dur: t.dur,
-        trackNum: i + 1,
+        trackNum: j + 1,
         path: t.path || null,
       }));
 
