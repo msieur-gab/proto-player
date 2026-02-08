@@ -1,4 +1,4 @@
-const CACHE_NAME = 'proto-player-v15';
+const CACHE_NAME = 'proto-player-v16';
 
 const APP_SHELL = [
   './',
@@ -12,7 +12,6 @@ const APP_SHELL = [
   'src/utils/player.js',
   'src/utils/db.js',
   'src/utils/file-loader.js',
-  'src/utils/id3-parser.js',
   'src/utils/palette.js',
   'src/utils/ring-math.js',
 ];

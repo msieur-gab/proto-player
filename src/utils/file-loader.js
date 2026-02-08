@@ -1,5 +1,15 @@
-// File System Access API integration — folder picker + MP3 scanning
-import { parseID3, pictureToURL } from './id3-parser.js';
+// Cross-platform file picking + multi-format audio metadata extraction
+// Uses jsmediatags (loaded via <script> tag) for ID3/MP4/OGG/FLAC parsing
+
+// Supported audio extensions
+const AUDIO_EXTS = new Set([
+  '.mp3', '.m4a', '.wav', '.ogg', '.flac', '.aac', '.wma', '.opus',
+]);
+
+function isAudioFile(name) {
+  const dot = name.lastIndexOf('.');
+  return dot !== -1 && AUDIO_EXTS.has(name.slice(dot).toLowerCase());
+}
 
 // Simple SVG placeholder for albums without cover art
 const PLACEHOLDER_COVER = `data:image/svg+xml,${encodeURIComponent(
@@ -15,7 +25,7 @@ const PLACEHOLDER_COVER = `data:image/svg+xml,${encodeURIComponent(
 const CONCURRENCY = 5;
 
 /**
- * Open a music folder, scan for MP3s, extract metadata
+ * Open a music folder, scan for audio files, extract metadata
  * @returns {Promise<{ albums, fileMap, dirHandle }|null>}
  */
 export async function openMusicFolder() {
@@ -40,7 +50,6 @@ export async function rescanFolder(dirHandle) {
   const files = await scanDirectory(dirHandle);
   if (!files || files.length === 0) return null;
 
-  // Attach relative paths from handle walk
   return processFiles(files);
 }
 
@@ -48,18 +57,16 @@ export async function rescanFolder(dirHandle) {
  * Process an array of File objects into albums + fileMap
  */
 async function processFiles(files) {
-  // Filter to .mp3 files
-  const mp3s = files.filter(f => f.name.toLowerCase().endsWith('.mp3'));
-  if (mp3s.length === 0) return null;
+  const audioFiles = files.filter(f => isAudioFile(f.name));
+  if (audioFiles.length === 0) return null;
 
-  // Build fileMap: path → File
   const fileMap = new Map();
 
-  // Parse ID3 + get duration with concurrency limit
-  const parsed = (await mapWithLimit(mp3s, CONCURRENCY, async (file) => {
+  // Parse tags + get duration with concurrency limit
+  const parsed = (await mapWithLimit(audioFiles, CONCURRENCY, async (file) => {
     try {
       const [tags, duration] = await Promise.all([
-        parseID3(file),
+        readTags(file),
         getDuration(file),
       ]);
       return { file, tags, duration };
@@ -128,16 +135,49 @@ async function processFiles(files) {
   return { albums, fileMap };
 }
 
+// --- Tag reading via jsmediatags ---
+
+function readTags(file) {
+  return new Promise((resolve) => {
+    jsmediatags.read(file, {
+      onSuccess(result) {
+        const t = result.tags || {};
+        resolve({
+          title: t.title || null,
+          artist: t.artist || null,
+          album: t.album || null,
+          track: t.track || null,
+          picture: t.picture || null, // { format, data }
+        });
+      },
+      onError() {
+        resolve({ title: null, artist: null, album: null, track: null, picture: null });
+      },
+    });
+  });
+}
+
+/**
+ * Convert a jsmediatags picture object to a blob URL
+ * picture.format = mime type, picture.data = array of byte values
+ */
+function pictureToURL(picture) {
+  if (!picture || !picture.data) return null;
+  const bytes = new Uint8Array(picture.data);
+  const blob = new Blob([bytes], { type: picture.format || 'image/jpeg' });
+  return URL.createObjectURL(blob);
+}
+
 // --- File picking ---
 
 async function pickFiles() {
-  // Try File System Access API first (Chromium, secure context only)
+  // Try File System Access API first (desktop Chromium, secure context)
   if (window.showDirectoryPicker) {
     try {
       console.log('[file-loader] Using File System Access API');
       const dirHandle = await window.showDirectoryPicker();
       const files = await scanDirectory(dirHandle);
-      console.log(`[file-loader] Found ${files.length} file(s)`);
+      console.log(`[file-loader] Found ${files.length} audio file(s)`);
       return { files, dirHandle };
     } catch (e) {
       if (e.name === 'AbortError') return null;
@@ -145,13 +185,14 @@ async function pickFiles() {
     }
   }
 
-  // Fallback: <input webkitdirectory>
+  // Fallback: <input webkitdirectory> — works on mobile Chrome, Safari, Firefox
   console.log('[file-loader] Using <input webkitdirectory> fallback');
   return new Promise((resolve) => {
     const input = document.createElement('input');
     input.type = 'file';
     input.setAttribute('webkitdirectory', '');
     input.setAttribute('multiple', '');
+    // No accept attribute — conflicts with webkitdirectory on Android Chrome
     input.addEventListener('change', () => {
       const files = input.files ? Array.from(input.files) : [];
       console.log(`[file-loader] Input returned ${files.length} file(s)`);
@@ -168,9 +209,8 @@ async function scanDirectory(dirHandle) {
   async function walk(handle, prefix) {
     for await (const entry of handle.values()) {
       const path = prefix ? `${prefix}/${entry.name}` : entry.name;
-      if (entry.kind === 'file' && entry.name.toLowerCase().endsWith('.mp3')) {
+      if (entry.kind === 'file' && isAudioFile(entry.name)) {
         const file = await entry.getFile();
-        // Attach relative path for fileMap lookup
         file._relativePath = path;
         files.push(file);
       } else if (entry.kind === 'directory') {
@@ -239,7 +279,8 @@ function parseTrackNumber(track) {
 
 function cleanFilename(name) {
   if (!name) return 'Unknown Track';
+  // Strip audio extension and leading track numbers
   return name
-    .replace(/\.mp3$/i, '')
-    .replace(/^\d+[\s._-]+/, ''); // strip leading track numbers
+    .replace(/\.(mp3|m4a|wav|ogg|flac|aac|wma|opus)$/i, '')
+    .replace(/^\d+[\s._-]+/, '');
 }
