@@ -169,7 +169,7 @@ function collapse() {
     carousel.removeAttribute('dimmed');
     header.classList.remove('hidden');
     folderBtn.classList.remove('hidden');
-    if (storedHandle) rescanBtn.classList.remove('hidden');
+    if (hasRealLibrary) rescanBtn.classList.remove('hidden');
     if (window._deferredInstallPrompt) installBtn.classList.remove('hidden');
     if (needsAuthBanner) authBanner.classList.remove('hidden');
   }, 80);
@@ -258,10 +258,12 @@ function handleFolderResult(result) {
   needsAuthBanner = false;
   authBanner.classList.add('hidden');
 
+  // Always show rescan — on mobile it re-opens the folder picker
+  rescanBtn.classList.remove('hidden');
+
   if (dirHandle) {
     storedHandle = dirHandle;
     saveHandle(dirHandle).catch(e => console.warn('[app] Handle save failed:', e));
-    rescanBtn.classList.remove('hidden');
   }
 }
 
@@ -303,8 +305,20 @@ musicInput.addEventListener('change', async () => {
 });
 
 // --- Rescan button ---
+// Desktop: rescan stored dirHandle silently
+// Mobile: no dirHandle → re-open folder picker
 rescanBtn.addEventListener('click', async () => {
-  if (!storedHandle) return;
+  if (!storedHandle) {
+    // Mobile path — re-open folder picker
+    try {
+      const result = await openMusicFolder();
+      if (!result) return;
+      handleFolderResult(result);
+    } catch (err) {
+      console.error('[app] Failed to load music folder:', err);
+    }
+    return;
+  }
 
   rescanBtn.classList.add('spinning');
 
@@ -314,6 +328,7 @@ rescanBtn.addEventListener('click', async () => {
       const { albums: newAlbums, fileMap } = result;
       console.log(`[app] Rescanned ${newAlbums.length} album(s)`);
 
+      currentFileMap = fileMap;
       player.setFileMap(fileMap);
       populateCarousel(newAlbums);
       hasRealLibrary = true;
@@ -393,10 +408,9 @@ async function init() {
       }
     } else if (hasRealLibrary) {
       // Mobile reopen: cached library exists but no handle to restore
-      console.log('[app] No stored handle, showing reload banner');
-      needsAuthBanner = true;
-      authBanner.textContent = 'Tap to reload your music folder';
-      authBanner.classList.remove('hidden');
+      // Show rescan button so user can re-pick their folder
+      console.log('[app] No stored handle, showing rescan button');
+      rescanBtn.classList.remove('hidden');
     }
   } catch (e) {
     console.warn('[app] Failed to restore directory handle:', e);
